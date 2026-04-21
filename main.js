@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude.ai — Sort Sidebar + Superchat
 // @namespace    local.ordinal
-// @version      43.3
-// @description  Superchat polish: bigger visible stars, wider scrollbar, date rail collision-handling.
+// @version      43.6
+// @description  Scrollbar more visible + theme toggle (dark contrast ↔ match site).
 // @match        https://claude.ai/*
 // @run-at       document-start
 // @grant        none
@@ -33,6 +33,41 @@
   // Legacy constant retained for backward-compat reads. True when sortMode === 'created'.
   // transformItems / sortByCreated still reference this; toggle mutates at runtime.
   let REWRITE_UPDATED_AT = sortMode === 'created';
+
+  // Superchat theme: 'contrast' keeps the original dark look regardless of
+  // site theme; 'themed' follows claude.ai's dark/light mode. Persists.
+  const THEME_STORAGE_KEY = 'sbc-theme-mode';
+  let themeMode = 'contrast';
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === 'contrast' || stored === 'themed') themeMode = stored;
+  } catch {}
+  const setThemeMode = (mode) => {
+    if (mode !== 'contrast' && mode !== 'themed') return;
+    themeMode = mode;
+    try { localStorage.setItem(THEME_STORAGE_KEY, mode); } catch {}
+  };
+
+  // Detect claude.ai's current theme. Checks the class list + data-theme on
+  // <html> and <body>, falls back to prefers-color-scheme. Returns 'light'
+  // or 'dark'. Default is 'dark' if nothing signals otherwise.
+  const detectSiteTheme = () => {
+    const html = document.documentElement;
+    const body = document.body;
+    // Class-based: many apps toggle a 'dark' or 'light' class on <html>
+    if (html?.classList.contains('light') || body?.classList.contains('light')) return 'light';
+    if (html?.classList.contains('dark') || body?.classList.contains('dark')) return 'dark';
+    // data-theme attribute
+    const dt = html?.dataset?.theme || body?.dataset?.theme;
+    if (dt === 'light' || dt === 'dark') return dt;
+    // color-scheme CSS prop
+    const cs = getComputedStyle(html).colorScheme;
+    if (cs && cs.includes('light') && !cs.includes('dark')) return 'light';
+    if (cs && cs.includes('dark') && !cs.includes('light')) return 'dark';
+    // System preference as last resort
+    if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
+    return 'dark';
+  };
   // In-name modes (disabled by default — they pollute the rename dialog).
   const SHOW_DATE_IN_NAME = false;
   const SHOW_SIZE_IN_NAME = false;
@@ -353,6 +388,78 @@
         position:relative;  /* date rail anchors here via absolute positioning */
         font:400 14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
         box-shadow:0 20px 60px rgba(0,0,0,.5); animation:sbc-slide 200ms ease }
+
+      /* ================ LIGHT THEME OVERRIDES ================
+         Applied when .sbc-light is set on the modal. Body-level background
+         + text color are the big ones; everything else cascades from
+         contrast-based rgba() values that are readable on both themes. */
+      .sbc-sc-modal.sbc-light {
+        background:rgba(250,250,250,.98); color:#18181b;
+        border-color:rgba(0,0,0,.1);
+        box-shadow:0 20px 60px rgba(0,0,0,.15);
+      }
+      .sbc-sc-modal.sbc-light .sbc-sc-header { border-bottom-color:rgba(0,0,0,.08) }
+      .sbc-sc-modal.sbc-light .sbc-sc-progress,
+      .sbc-sc-modal.sbc-light .sbc-sc-close { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-sc-close:hover { background:rgba(0,0,0,.06); color:#18181b }
+      .sbc-sc-modal.sbc-light .sbc-sc-search {
+        background:rgba(0,0,0,.04); color:#18181b;
+        border-color:rgba(0,0,0,.1);
+      }
+      .sbc-sc-modal.sbc-light .sbc-sc-search::placeholder { color:#71717a }
+      .sbc-sc-modal.sbc-light .sbc-sender-btn { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-sender-btn:hover { color:#18181b; background:rgba(0,0,0,.04) }
+      .sbc-sc-modal.sbc-light .sbc-sender-btn.active { background:rgba(167,139,250,.22); color:#18181b }
+      .sbc-sc-modal.sbc-light .sbc-sc-chat-filter,
+      .sbc-sc-modal.sbc-light .sbc-sc-starred-only,
+      .sbc-sc-modal.sbc-light .sbc-sc-theme-toggle {
+        background:rgba(0,0,0,.04); color:#18181b; border-color:rgba(0,0,0,.1);
+      }
+      .sbc-sc-modal.sbc-light .sbc-sc-chat-filter:hover,
+      .sbc-sc-modal.sbc-light .sbc-sc-starred-only:hover,
+      .sbc-sc-modal.sbc-light .sbc-sc-theme-toggle:hover { background:rgba(0,0,0,.08) }
+      .sbc-sc-modal.sbc-light .sbc-sc-starred-only.active {
+        background:rgba(251,191,36,.25); border-color:rgba(251,191,36,.5); color:#78350f;
+      }
+      .sbc-sc-modal.sbc-light .sbc-sc-count { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-day {
+        color:#7c3aed;
+        background:rgba(250,250,250,.98);
+        border-bottom-color:rgba(124,58,237,.2);
+      }
+      .sbc-sc-modal.sbc-light .sbc-msg { border-bottom-color:rgba(0,0,0,.06) }
+      .sbc-sc-modal.sbc-light .sbc-msg:hover { background:rgba(0,0,0,.03) }
+      .sbc-sc-modal.sbc-light .sbc-msg.sbc-msg-selected {
+        background:rgba(167,139,250,.12);
+      }
+      .sbc-sc-modal.sbc-light .sbc-msg-time,
+      .sbc-sc-modal.sbc-light .sbc-msg-context { color:#71717a }
+      .sbc-sc-modal.sbc-light .sbc-msg-open { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-msg-open:hover { color:#18181b; background:rgba(0,0,0,.06) }
+      .sbc-sc-modal.sbc-light .sbc-msg-copy { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-msg-copy:hover { color:#18181b; background:rgba(0,0,0,.06) }
+      .sbc-sc-modal.sbc-light .sbc-msg-star { color:#52525b }
+      .sbc-sc-modal.sbc-light .sbc-msg-star:hover { background:rgba(0,0,0,.06) }
+      .sbc-sc-modal.sbc-light .sbc-msg-text { color:#18181b }
+      .sbc-sc-modal.sbc-light .sbc-msg.sbc-msg-skel .sbc-msg-text { color:#a1a1aa }
+      .sbc-sc-modal.sbc-light .sbc-sc-empty { color:#71717a }
+      .sbc-sc-modal.sbc-light .sbc-sc-body::-webkit-scrollbar-track { background:rgba(0,0,0,.04) }
+      .sbc-sc-modal.sbc-light .sbc-sc-body::-webkit-scrollbar-thumb { background:rgba(0,0,0,.3) }
+      .sbc-sc-modal.sbc-light .sbc-sc-body::-webkit-scrollbar-thumb:hover { background:rgba(0,0,0,.5) }
+      .sbc-sc-modal.sbc-light .sbc-sc-body::-webkit-scrollbar-thumb:active { background:rgba(0,0,0,.65) }
+      .sbc-sc-modal.sbc-light .sbc-sc-body { scrollbar-color:rgba(0,0,0,.3) rgba(0,0,0,.04) }
+      .sbc-sc-modal.sbc-light .sbc-scroll-pill {
+        background:rgba(250,250,250,.95); border-color:rgba(0,0,0,.12); color:#18181b;
+      }
+      .sbc-sc-modal.sbc-light .sbc-date-rail .sbc-rail-tick { color:rgba(24,24,27,.5) }
+      .sbc-sc-modal.sbc-light .sbc-date-rail .sbc-rail-tick.year { color:rgba(124,58,237,.9) }
+      .sbc-sc-modal.sbc-light .sbc-date-rail .sbc-rail-tick:hover { color:#18181b }
+      .sbc-sc-modal.sbc-light .sbc-date-rail .sbc-rail-tick.year:hover { color:#6d28d9 }
+      .sbc-sc-modal.sbc-light .sbc-chat-panel-head,
+      .sbc-sc-modal.sbc-light .sbc-sc-chat-panel {
+        background:rgba(245,245,245,.98); border-color:rgba(0,0,0,.1);
+      }
+      .sbc-sc-modal.sbc-light .sbc-chat-row:hover { background:rgba(0,0,0,.04) }
       .sbc-sc-header { display:flex; align-items:center; justify-content:space-between;
         padding:14px 20px; border-bottom:1px solid rgba(255,255,255,.06); gap:12px }
       .sbc-sc-title { font:600 15px/1.2 inherit; margin:0 }
@@ -502,10 +609,16 @@
       }
 
       .sbc-sc-body { overflow-y:auto; padding:0 0 24px; flex:1; position:relative; contain:strict }
-      .sbc-sc-body::-webkit-scrollbar { width:14px }
-      .sbc-sc-body::-webkit-scrollbar-track { background:rgba(255,255,255,.03) }
-      .sbc-sc-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.2); border-radius:7px; border:3px solid transparent; background-clip:padding-box }
-      .sbc-sc-body::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.35); background-clip:padding-box; border:3px solid transparent }
+      .sbc-sc-body::-webkit-scrollbar { width:16px }
+      .sbc-sc-body::-webkit-scrollbar-track { background:rgba(255,255,255,.04); border-radius:8px }
+      .sbc-sc-body::-webkit-scrollbar-thumb {
+        background:rgba(255,255,255,.35); border-radius:8px;
+        min-height:40px;  /* ensures thumb stays grabbable with lots of content */
+      }
+      .sbc-sc-body::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.55) }
+      .sbc-sc-body::-webkit-scrollbar-thumb:active { background:rgba(255,255,255,.7) }
+      /* Firefox fallback (doesn't respect ::-webkit-*) */
+      .sbc-sc-body { scrollbar-width:auto; scrollbar-color:rgba(255,255,255,.35) rgba(255,255,255,.04) }
 
       /* Virtualizer: spacer sizes the scroll area to total-height, rows are
          absolutely positioned inside. Only rows in/near viewport are in the DOM. */
@@ -581,7 +694,7 @@
         border-bottom:1px solid rgba(255,255,255,.04);
         color:inherit;
         transition:background 120ms ease;
-        cursor:pointer;  /* click to copy */
+        cursor:text;  /* text cursor — rows are selectable, not clickable */
       }
       .sbc-msg:hover { background:rgba(255,255,255,.03) }
       /* Keyboard-selected row: subtle purple left-border + slight tint */
@@ -628,6 +741,20 @@
         opacity:1;
       }
       .sbc-msg-star.filled:hover { color:#fde68a; background:rgba(251,191,36,.15); }
+
+      /* Copy button: ⧉ glyph. Neutral grey, brightens on hover. Brief
+         "copied" state shows a check glyph. */
+      .sbc-msg-copy {
+        flex-shrink:0; background:none; border:none;
+        color:#a1a1aa;
+        padding:2px 6px; border-radius:4px;
+        font:400 16px/1 inherit; cursor:pointer;
+        opacity:0.75;
+        transition:opacity 120ms ease, color 120ms ease, background 120ms ease, transform 120ms ease;
+      }
+      .sbc-msg:hover .sbc-msg-copy { opacity:1; }
+      .sbc-msg-copy:hover { opacity:1; color:#e4e4e7; background:rgba(255,255,255,.08); transform:scale(1.15); }
+      .sbc-msg-copy.copied { color:#86efac; }
 
       /* Starred row: subtle amber tint on the left edge, mirroring the selected
          row's purple edge. If both are active, selected overrides (purple wins). */
@@ -1523,6 +1650,7 @@
           </div>
           <button class="sbc-sc-chat-filter" title="Filter chats">Chats: all</button>
           <button class="sbc-sc-starred-only" title="Show only starred messages (s on a row to star)" aria-pressed="false">★ only</button>
+          <button class="sbc-sc-theme-toggle" title="Toggle theme: dark contrast vs. match site">🌓</button>
           <span class="sbc-sc-count"></span>
         </div>
         <div class="sbc-sc-chat-panel" hidden></div>
@@ -1533,11 +1661,24 @@
     document.body.appendChild(overlay);
     modalEl = overlay;
 
+    // Apply theme based on current mode. 'contrast' = dark (default, no class);
+    // 'themed' = match claude.ai — add .sbc-light if site is in light mode.
+    const applyTheme = () => {
+      const modal = overlay.querySelector('.sbc-sc-modal');
+      if (!modal) return;
+      const useLight = themeMode === 'themed' && detectSiteTheme() === 'light';
+      modal.classList.toggle('sbc-light', useLight);
+    };
+    overlay._sbcApplyTheme = applyTheme;  // so loadAndRender's toolbar can call
+    applyTheme();
+
     activeController = new AbortController();
     const signal = activeController.signal;
 
     const close = () => {
-      document.removeEventListener('keydown', onKey);
+      if (overlay._sbcNavKeyHandler) {
+        document.removeEventListener('keydown', overlay._sbcNavKeyHandler);
+      }
       activeController?.abort();
       activeController = null;
       overlay._sbcController?.destroy();
@@ -1545,10 +1686,8 @@
       modalEl = null;
       if (!bgDone) { bgController = null; runBackgroundPrefetch(); }
     };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('.sbc-sc-close').addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
 
     loadAndRender(overlay, signal).catch(err => {
       if (err.name === 'AbortError' || signal.aborted) return;
@@ -1593,6 +1732,7 @@
     const senderBtns = overlay.querySelectorAll('.sbc-sender-btn');
     const chatFilterBtn = overlay.querySelector('.sbc-sc-chat-filter');
     const starredOnlyBtn = overlay.querySelector('.sbc-sc-starred-only');
+    const themeToggleBtn = overlay.querySelector('.sbc-sc-theme-toggle');
     const chatPanel = overlay.querySelector('.sbc-sc-chat-panel');
     const countEl = overlay.querySelector('.sbc-sc-count');
 
@@ -1688,6 +1828,15 @@
       updateCount();
     });
 
+    // Theme toggle: cycle 'contrast' ↔ 'themed'. Re-applies theme class.
+    // applyTheme is defined in openSuperchat's closure, exposed via overlay.
+    themeToggleBtn.addEventListener('click', () => {
+      const next = themeMode === 'contrast' ? 'themed' : 'contrast';
+      setThemeMode(next);
+      overlay._sbcApplyTheme?.();
+      toast.show(next === 'themed' ? 'Theme: match site' : 'Theme: dark contrast', true);
+    });
+
     chatPanel.addEventListener('change', (e) => {
       if (e.target.tagName !== 'INPUT') return;
       const uuid = e.target.dataset.uuid;
@@ -1721,7 +1870,17 @@
       chatPanel.setAttribute('hidden', '');
     });
 
-    overlay.addEventListener('keydown', (e) => {
+    // Keyboard navigation handler: attached to document (not overlay) so it
+    // fires regardless of which element inside/outside the modal has focus.
+    // Previously attached to overlay — but when focus was on <body> (common
+    // after clicking a non-focusable row), events bubbled through body→html
+    // →document without passing through overlay, so j/k/arrows/c/s all
+    // silently broke.
+    const onNavKey = (e) => {
+      // Skip if modal is gone (paranoid — close() removes this listener, but
+      // a race could have a stray event in-flight).
+      if (!modalEl || !document.body.contains(modalEl)) return;
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         searchInput.focus();
@@ -1729,8 +1888,8 @@
         return;
       }
 
-      // Keyboard navigation — only when search input doesn't have focus.
-      // Otherwise arrow keys would hijack text-cursor movement in the search field.
+      // Skip when focus is in the search input (arrow keys should move
+      // text cursor, not selection).
       const inInput = e.target === searchInput ||
         (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
       if (inInput) return;
@@ -1777,13 +1936,23 @@
           });
         }
       } else if (e.key === 'Escape') {
-        // Esc clears selection; only if nothing else is handled already
+        // Esc: clear selection if active, otherwise close the modal.
         if (controller.getSelectedRow?.()) {
-          e.stopPropagation();
+          e.stopImmediatePropagation();
+          e.preventDefault();
           controller.clearSelection();
+        } else {
+          // No selection — close modal. We handle this here rather than in
+          // a separate onKey listener because the listener order matters
+          // for the selection-vs-close precedence.
+          e.preventDefault();
+          const closeBtn = overlay.querySelector('.sbc-sc-close');
+          if (closeBtn) closeBtn.click();
         }
       }
-    });
+    };
+    document.addEventListener('keydown', onNavKey);
+    overlay._sbcNavKeyHandler = onNavKey;  // so close() can remove it
 
     // ----- empty state handling -----
 
@@ -2258,6 +2427,7 @@
             <span class="sbc-msg-sender"></span>
             <span class="sbc-msg-context"></span>
             <button class="sbc-msg-star" title="Star message (s)" aria-label="Star">☆</button>
+            <button class="sbc-msg-copy" title="Copy message (c)" aria-label="Copy">⧉</button>
             <a class="sbc-msg-open" href="#" title="Open chat" tabindex="0">Open ↗</a>
           </div>
           <div class="sbc-msg-text"></div>
@@ -2267,10 +2437,11 @@
           sender: el.querySelector('.sbc-msg-sender'),
           context: el.querySelector('.sbc-msg-context'),
           star: el.querySelector('.sbc-msg-star'),
+          copy: el.querySelector('.sbc-msg-copy'),
           open: el.querySelector('.sbc-msg-open'),
           text: el.querySelector('.sbc-msg-text'),
         };
-        // Star toggle: stopPropagation so the outer click-copy handler doesn't fire.
+        // Star toggle.
         el._sbc.star.addEventListener('click', async (e) => {
           e.stopPropagation();
           const current = el._row;
@@ -2279,27 +2450,24 @@
           el._sbc.star.classList.toggle('filled', nowStarred);
           el._sbc.star.textContent = nowStarred ? '★' : '☆';
           el.classList.toggle('sbc-msg-starred', nowStarred);
-          // Re-run filter if starred-only active (row may drop out), else just repaint.
           notifyStarChanged();
         });
-        // Click-copy: clicking anywhere on the row body copies the message
-        // text. Skipped when click target is the Open link (which navigates)
-        // or the star button, or inside a text selection the user started.
-        // The element persists across recycles, so we attach once and read
-        // the current row from el._row.
-        el.addEventListener('click', async (e) => {
-          // Don't hijack clicks on the Open link, star, or their descendants.
-          if (e.target.closest('.sbc-msg-open') || e.target.closest('.sbc-msg-star')) return;
-          // If user has an active selection within this row, let them copy
-          // their selection via native Ctrl+C — don't override.
-          const sel = window.getSelection();
-          if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) return;
+        // Copy button: copies the message text. Rest of the row is free for
+        // native text selection — no click-copy hijacking anymore.
+        el._sbc.copy.addEventListener('click', async (e) => {
+          e.stopPropagation();
           const current = el._row;
           if (!current || !current.text) return;
           try {
             await navigator.clipboard.writeText(current.text);
-            // Flash a "Copied!" pill via the same toast used elsewhere
             toast.show('Copied to clipboard', true);
+            // Brief visual confirmation on the button itself: glyph swap + colour
+            el._sbc.copy.classList.add('copied');
+            el._sbc.copy.textContent = '✓';
+            setTimeout(() => {
+              el._sbc.copy.classList.remove('copied');
+              el._sbc.copy.textContent = '⧉';
+            }, 900);
           } catch (err) {
             toast.show('Copy failed');
           }
@@ -2941,5 +3109,5 @@
     }
   };
 
-  LOG(`installed v43.3 — Superchat polish (${sortMode} mode)`);
+  LOG(`installed v43.6 — scrollbar + theme toggle (${sortMode} mode, ${themeMode} theme)`);
 })();
