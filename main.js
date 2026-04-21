@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude.ai — Sort Sidebar + Superchat
 // @namespace    local.ordinal
-// @version      43.6
-// @description  Scrollbar more visible + theme toggle (dark contrast ↔ match site).
+// @version      43.9
+// @description  Split rail gap: years need 22px, months only 12px — denser month labels, still-readable years.
 // @match        https://claude.ai/*
 // @run-at       document-start
 // @grant        none
@@ -2331,25 +2331,72 @@
       // Positioning: each tick's vertical position = percentage of total scroll
       // height. When user clicks, we scrollTop to offsets[firstRowIdx].
       //
-      // Collision handling: when many months fall within a small percentage
-      // of totalHeight (common when most messages are from recent months,
-      // old chats bunch together at the other end), ticks would render on
-      // top of each other. We enforce a minimum pixel gap:
-      //  - Years are always rendered (they anchor the timeline)
-      //  - Months get dropped if they'd land too close to the previous
-      //    rendered tick
+      // Collision handling with year-merging:
+      //  1. Compute each entry's pixel position.
+      //  2. Walk entries; when a year would overlap the previous rendered
+      //     year, merge them into a range label ('2023–24', '2023–25', ...)
+      //     rather than dropping either.
+      //  3. Months drop if they'd overlap the last rendered entry. Year
+      //     labels take precedence, so dropped months don't displace years.
       const railPx = dateRail.clientHeight || 600;  // fallback if not yet laid out
-      const MIN_GAP_PX = 14;  // tick height is ~10-12px; 14px leaves breathing room
-      const visible = [];
-      let lastTopPx = -Infinity;
-      for (const e of railEntries) {
+      // Separate gap thresholds: years need more breathing room (they're
+      // bolder + larger font, and the range-merging logic prefers to fire
+      // on collision). Months can pack tighter since they're dimmer.
+      const YEAR_GAP_PX = 22;
+      const MONTH_GAP_PX = 12;
+      // First, annotate entries with pixel position.
+      const annotated = railEntries.map(e => {
         const pct = (offsets[e.firstRowIdx] / totalHeight) * 100;
-        const topPx = (pct / 100) * railPx;
-        if (e.isYear || topPx - lastTopPx >= MIN_GAP_PX) {
-          visible.push({ ...e, pct });
-          lastTopPx = topPx;
+        return { ...e, pct, topPx: (pct / 100) * railPx };
+      });
+
+      // Walk + merge years + drop overlapping months. Output: `visible[]`.
+      // Collision threshold depends on the INCOMING entry type: years need
+      // YEAR_GAP; months only need MONTH_GAP. This lets months pack denser
+      // while years trigger range-merging more aggressively.
+      const visible = [];
+      let lastRenderedPx = -Infinity;
+      for (const e of annotated) {
+        if (e.isYear) {
+          if (e.topPx - lastRenderedPx < YEAR_GAP_PX && visible.length) {
+            // Collides with the previous rendered entry. If that entry is also
+            // a year, extend its label into a range (e.g., '2023' → '2023–24').
+            // If it was a month, replace the month with this year (years win).
+            const prev = visible[visible.length - 1];
+            if (prev.isYear) {
+              // Extract the start year from prev.label — it may already be a
+              // range like '2023–24'; in which case extend the end.
+              const m = prev.label.match(/^(\d{4})(?:–(\d{2,4}))?$/);
+              const startYear = m ? parseInt(m[1], 10) : parseInt(prev.label, 10);
+              const thisYear = parseInt(e.label, 10);
+              if (!isNaN(startYear) && !isNaN(thisYear) && thisYear > startYear) {
+                // Abbreviate trailing year to 2 digits if same century
+                const endStr = Math.floor(thisYear / 100) === Math.floor(startYear / 100)
+                  ? String(thisYear).slice(-2)
+                  : String(thisYear);
+                prev.label = `${startYear}–${endStr}`;
+                // Don't update firstRowIdx — clicking the range jumps to the earliest year.
+              }
+              // Skip pushing `e` separately — it's been folded into prev.
+              continue;
+            } else {
+              // Previous was a month; replace it with this year.
+              visible.pop();
+              visible.push(e);
+              lastRenderedPx = e.topPx;
+              continue;
+            }
+          }
+          visible.push(e);
+          lastRenderedPx = e.topPx;
+        } else {
+          // Month: drop if too close to last rendered.
+          if (e.topPx - lastRenderedPx < MONTH_GAP_PX) continue;
+          visible.push(e);
+          lastRenderedPx = e.topPx;
         }
       }
+
       dateRail.innerHTML = visible.map(e => {
         return `<button class="sbc-rail-tick${e.isYear ? ' year' : ''}"
                        data-idx="${e.firstRowIdx}"
@@ -3109,5 +3156,5 @@
     }
   };
 
-  LOG(`installed v43.6 — scrollbar + theme toggle (${sortMode} mode, ${themeMode} theme)`);
+  LOG(`installed v43.9 — split rail gaps year=22 month=12 (${sortMode} mode, ${themeMode} theme)`);
 })();
