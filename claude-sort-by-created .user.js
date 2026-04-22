@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude.ai — Sort Sidebar + Superchat
 // @namespace    local.ordinal
-// @version      43.9
-// @description  Split rail gap: years need 22px, months only 12px — denser month labels, still-readable years.
+// @version      44.1
+// @description  Regex search on leading '/'. Enter-opens-chat behavior removed (Enter now only applies search).
 // @match        https://claude.ai/*
 // @run-at       document-start
 // @grant        none
@@ -78,7 +78,6 @@
   const PROBE_LIMITS = [1000, 500, 250, 100, 50];
 
   const ENABLE_SUPERCHAT = true;
-  const SUPERCHAT_HOTKEY = (e) => e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 't';
   const FETCH_CONCURRENCY = 4;
 
   // Silent background prefetch: populates the size cache after page load
@@ -1642,7 +1641,7 @@
           <button class="sbc-sc-close" title="Close (Esc)">×</button>
         </div>
         <div class="sbc-sc-toolbar">
-          <input class="sbc-sc-search" type="text" placeholder="Search messages (Enter)" autocomplete="off" spellcheck="false">
+          <input class="sbc-sc-search" type="text" placeholder="Search messages — use / for regex (Enter to apply)" autocomplete="off" spellcheck="false">
           <div class="sbc-sc-sender-toggle" role="group" aria-label="Sender filter">
             <button class="sbc-sender-btn active" data-sender="all">All</button>
             <button class="sbc-sender-btn" data-sender="user">Me</button>
@@ -1744,6 +1743,31 @@
 
     const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+    // Build a search regex from the user's query. Leading '/' triggers regex
+    // mode: everything after the slash is treated as a raw regex source.
+    // Optional trailing '/flags' (`/foo.*bar/i`) sets flags; default is 'gi'.
+    // Invalid regex falls back to literal search + a toast.
+    const buildQueryRegex = (raw) => {
+      if (!raw) return null;
+      if (raw.startsWith('/') && raw.length > 1) {
+        // Strip leading slash; parse optional trailing /flags.
+        const body = raw.slice(1);
+        const m = body.match(/^(.*?)\/([gimsuy]*)$/);
+        const pattern = m ? m[1] : body;
+        const flags = m && m[2] ? m[2] : 'gi';
+        try {
+          // Ensure 'g' flag so .test() doesn't get stuck on same match across calls.
+          const finalFlags = flags.includes('g') ? flags : flags + 'g';
+          return new RegExp(pattern, finalFlags);
+        } catch (err) {
+          toast.show(`Invalid regex: ${err.message}`);
+          // Fall back to literal match on the whole raw string
+          return new RegExp(escapeRegex(raw), 'gi');
+        }
+      }
+      return new RegExp(escapeRegex(raw), 'gi');
+    };
+
     // allMsgRows: the full flat array of message rows across all chats.
     // Populated incrementally as chat_rows records load from IndexedDB.
     // Virtualizer reads from here via setFlatRows.
@@ -1751,7 +1775,7 @@
 
     const applyUiFilter = () => {
       const senders = uiFilter.sender === 'all' ? null : new Set([uiFilter.sender]);
-      const queryRe = uiFilter.query ? new RegExp(escapeRegex(uiFilter.query), 'gi') : null;
+      const queryRe = buildQueryRegex(uiFilter.query);
       controller.setFilter({ queryRe, senders, chatUuids: uiFilter.chats });
       updateCount();
     };
@@ -1909,12 +1933,6 @@
       } else if (e.key === 'PageUp') {
         e.preventDefault();
         controller.moveSelection(-10);
-      } else if (e.key === 'Enter') {
-        const row = controller.getSelectedRow?.();
-        if (row && row.chatUuid) {
-          e.preventDefault();
-          location.href = `/chat/${row.chatUuid}`;
-        }
       } else if (e.key === 'c' && !e.shiftKey) {
         // Copy selected row's text
         const row = controller.getSelectedRow?.();
@@ -3051,7 +3069,7 @@
     injectStyles();
     const btn = document.createElement('button');
     btn.className = 'sbc-sc-btn';
-    btn.title = 'Open Superchat — message-level view across all chats (Ctrl+Shift+T)';
+    btn.title = 'Open Superchat — message-level view across all chats';
     btn.innerHTML = `
       <svg class="sbc-sc-btn-ring hidden" viewBox="0 0 14 14">
         <circle class="track" cx="7" cy="7" r="5.5"></circle>
@@ -3089,9 +3107,9 @@
   };
   whenReady(injectSuperchatButton);
 
-  document.addEventListener('keydown', (e) => {
-    if (ENABLE_SUPERCHAT && SUPERCHAT_HOTKEY(e)) { e.preventDefault(); openSuperchat(); }
-  });
+  // Previously a Ctrl+Shift+T hotkey opened Superchat. Removed — conflicts
+  // with the browser's "reopen last closed tab" shortcut, and the button
+  // on the page is always visible so the hotkey wasn't pulling its weight.
 
   // ============================================================
   //  PATCHED FETCH
@@ -3156,5 +3174,5 @@
     }
   };
 
-  LOG(`installed v43.9 — split rail gaps year=22 month=12 (${sortMode} mode, ${themeMode} theme)`);
+  LOG(`installed v44.1 — regex search + Enter is search-only (${sortMode} mode, ${themeMode} theme)`);
 })();
